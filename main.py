@@ -1,50 +1,70 @@
-import requests
-
 from auth import Auth
+from spotify_data_fetcher import SpotifyDataFetcher
+from data_storage import DataStorage
 
-base_url = 'https://api.spotify.com/v1/'
+def main():
+    auth = Auth()
+    token = auth.get_token()
 
-auth = Auth()
-token = auth.get_token()
+    fetcher = SpotifyDataFetcher(token)
 
-headers = {
-    'Authorization': f'Bearer {token}',
-    "Accept": "application/json"
-}
+    # Obtener datos de Spotify
+    top_artists = fetcher.get_top_artists()
+    top_tracks = fetcher.get_top_tracks()
+    playlist_info = fetcher.get_playlist_info('37i9dQZF1DWWGFQLoP9qlv')
 
-search = requests.utils.quote("album:Blackstar")
+    # Continuación de main.py
 
-params = {
-    'type' : "album",
-    'q' : search
-}
+    # Procesar los 10 artistas más escuchados
+    artist_names = [artist['name'] for artist in top_artists]
+    artist_genres = set()
+    for artist in top_artists:
+        artist_genres.update(artist['genres'])
 
-response = requests.get(base_url+"search", headers=headers, params=params)
+    # Seleccionar los 5 géneros más comunes
+    top_genres = list(artist_genres)[:5]
 
-if response:
-    pass
-    # print(response.json())
-else:
-    print(f"Error {response.status_code}")
-    print(response.content)
+    # Procesar las 10 canciones más escuchadas
+    track_names = [track['name'] for track in top_tracks]
+    track_artists = [track['artists'][0]['name'] for track in top_tracks]
 
-albums = response.json()["albums"]["items"]
-first_album = albums[0]
-artist = first_album["artists"][0]
-artist_id = artist['id']
+    # Procesar información de la playlist
+    playlist_tracks = playlist_info['tracks']['items']
+    track_ids = [track['track']['id'] for track in playlist_tracks]
 
-params = {
-    'time_range' : "long_term",
-    'limit' : 10
-}
+    # Obtener características de audio de las canciones de la playlist
+    audio_features = fetcher.get_audio_features(track_ids)
 
-response = requests.get(base_url+"artists/"+artist_id, headers=headers, params=params)
+    # Calcular promedios de las características de audio
+    # Asumimos que todas las características de audio son numéricas, excepto aquellas que se deben excluir
+    features_to_exclude = ['type', 'id', 'uri', 'track_href', 'analysis_url', 'duration_ms', 'time_signature']
+    average_features = {key: 0 for key in audio_features[track_ids[0]].keys() if key not in features_to_exclude}
 
-if response:
-    pass
-    # print(response.json())
-else:
-    print(f"Error {response.status_code}")
-    print(response.content)
+    for track_id in track_ids:
+        for feature in average_features:
+            # Asegúrate de que el valor es numérico antes de sumarlo
+            if isinstance(audio_features[track_id][feature], (int, float)):
+                average_features[feature] += audio_features[track_id][feature]
 
-print(response.json()["name"])
+    # Calcular el promedio
+    for feature in average_features:
+        average_features[feature] /= len(track_ids)
+
+
+    # Datos a guardar
+    your_data = {
+        'Top Artists': artist_names,
+        'Top Genres': top_genres,
+        'Top Tracks': list(zip(track_names, track_artists)),
+        'Playlist Audio Features': average_features
+    }
+
+    # Continúa con la parte de guardar datos...
+
+
+    # Guardar datos en un archivo
+    DataStorage.save_to_json(your_data, 'spotify_data.json')
+    DataStorage.save_image(playlist_info['images'][0]['url'], 'playlist_cover.jpg')
+
+if __name__ == "__main__":
+    main()
